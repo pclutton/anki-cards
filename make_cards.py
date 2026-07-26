@@ -42,21 +42,21 @@ OUTPUT_COST_PER_MTOK = 25.00
 # Above this estimated cost, ask before spending
 COST_CONFIRM_THRESHOLD = 1.00
 
-# Measured against a real 43-page textbook chapter using the free
-# count_tokens endpoint: 42 cards came to ~5,275 tokens of JSON (~126 each)
-# from ~9,435 input tokens of source text (~one card per 225 text tokens).
-OUTPUT_TOKENS_PER_CARD = 126
+# Measured from a real run: a 43-page chapter with the current STYLE.md
+# produced 98 notes from 11,328 text tokens and 10,800 output tokens.
+# This figure is TOTAL output per card — thinking included, not just the
+# visible JSON — so the factors below are variance headroom, not a thinking
+# allowance on top.
+OUTPUT_TOKENS_PER_CARD = 110
 # Cards scale with how much *reading* there is, not how many pictures. Image
 # tokens must stay out of this: a chapter's 48k image tokens would otherwise
-# predict a 200-card deck from a 42-card lecture.
-TEXT_TOKENS_PER_CARD = 225
-# Adaptive thinking is billed as output on top of the visible JSON. Reconciled
-# against a real account total of $0.67 across six calls, thinking added only
-# about 10% for this task — well below the 20-200% first assumed. Kept as a
-# band because a denser lecture may reason more; the actual figure printed
-# after every run is the number to trust over this.
+# predict a 400-card deck from a 98-card lecture.
+TEXT_TOKENS_PER_CARD = 115
+# Ceiling on the predicted deck size. STYLE.md currently targets 90-120 cards
+# per chapter; raise both together if that target changes.
+MAX_EXPECTED_CARDS = 130
 THINKING_FACTOR_LOW = 1.0
-THINKING_FACTOR_HIGH = 1.6
+THINKING_FACTOR_HIGH = 1.3
 
 # Anki's built-in note types, via genanki's canonical definitions. Do not
 # hand-roll these: a mismatched model ID makes Anki fork the note type on
@@ -222,7 +222,7 @@ def estimate_cost(text_tokens: int, img_tokens: int) -> tuple[float, float]:
     input rate, so a few thousand tokens of JSON can outweigh a long PDF.
     """
     input_cost = (text_tokens + img_tokens) / 1_000_000 * INPUT_COST_PER_MTOK
-    expected_cards = max(10, min(60, text_tokens // TEXT_TOKENS_PER_CARD))
+    expected_cards = max(10, min(MAX_EXPECTED_CARDS, text_tokens // TEXT_TOKENS_PER_CARD))
     visible_output = expected_cards * OUTPUT_TOKENS_PER_CARD
     low = input_cost + visible_output * THINKING_FACTOR_LOW / 1_000_000 * OUTPUT_COST_PER_MTOK
     high = input_cost + visible_output * THINKING_FACTOR_HIGH / 1_000_000 * OUTPUT_COST_PER_MTOK
@@ -244,8 +244,13 @@ def build_prompt(pdf_text: str | None, topic_text: str | None, images: list[dict
     if topic_text:
         text_parts.append(f"<topic_request>\n{topic_text}\n</topic_request>")
 
+    # Format mechanics only. Everything about what makes a good card — density,
+    # atomicity, card-type choice, where diagrams go — belongs in STYLE.md, which
+    # is the system prompt and which the user edits. Advice here would silently
+    # compete with theirs, which is how every diagram ended up on the answer side.
     instruction = (
-        "Generate Anki flashcards from the material above.\n\n"
+        "Generate Anki flashcards from the material above, following the style "
+        "guide in the system prompt.\n\n"
         "Return ONLY a JSON object — no prose, no markdown fences — with this exact structure:\n"
         "{\n"
         '  "deck": "Subject::Topic",\n'
@@ -256,19 +261,20 @@ def build_prompt(pdf_text: str | None, topic_text: str | None, images: list[dict
         '    {"model": "Basic (and reversed card)", "front": "Term", "back": "Definition", "tags": ["hard"]}\n'
         "  ]\n"
         "}\n\n"
-        "Rules:\n"
+        "Format rules:\n"
         '- model must be exactly "Basic", "Cloze", or "Basic (and reversed card)"\n'
         '- Basic and Basic (and reversed card) cards require "front" and "back"\n'
         '- Cloze cards require "text" (with {{c1::...}} syntax) and optional "back_extra"\n'
+        "- HTML is allowed in any field (<b>, <br>, <img>)\n"
         "- Output raw JSON only — no text before or after the object"
     )
     if images:
+        # Mechanical only: how to reference a file so it resolves to bundled
+        # media. Whether and where to use a diagram is STYLE.md's decision.
         instruction += (
-            "\n- Lecture diagrams are attached below. Each is preceded by a line giving its "
-            'exact filename. To show a diagram on a card, embed it as <img src="FILENAME"> '
-            "using that exact filename — do not invent or alter filenames.\n"
-            "- Only use a diagram where seeing it genuinely aids recall (metabolic cycles, "
-            "anatomical structures). Most cards should have no image."
+            "\n- Diagrams are attached below, each preceded by a line giving its exact "
+            'filename. Reference one as <img src="FILENAME"> using that exact filename — '
+            "do not invent or alter filenames. An <img> tag may go in any field."
         )
 
     text_parts.append(instruction)

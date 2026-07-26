@@ -72,13 +72,20 @@ uv run make_cards.py --inbox
 
 The finished `.apkg` file lands in `Card Decks/`. Double-click it — Anki imports it automatically.
 
-Before calling the API the script prints an estimated cost. Above about $1 it asks you to confirm;
-pass `-y` to skip that prompt.
+Before calling the API the script prints an estimated cost, and afterwards the actual cost. A
+40-page illustrated chapter runs to roughly **$0.70–0.90**; text-only is much less. Above $1 it
+asks you to confirm — pass `-y` to skip that prompt.
 
 ## Customising card style
 
-Edit `STYLE.md` to change how Claude generates cards: card types, answer length, emphasis, topics to skip, etc.
-Changes take effect on the next run.
+`STYLE.md` controls **everything** about how cards are written: how many, how they're split, which
+card type is used, and where diagrams go. It's an ordinary text file — open it in VS Code and edit
+it. Changes take effect on the next run.
+
+It's worth reading once before your first real deck. The two things most worth tuning are the
+**card count target** (currently ~90–120 per chapter) and the **worked examples** at the bottom —
+the examples do more to shape the output than the rules above them, so adding one in your own
+subject is the fastest way to improve results.
 
 ## Re-running a lecture
 
