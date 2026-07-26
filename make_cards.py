@@ -44,14 +44,19 @@ COST_CONFIRM_THRESHOLD = 1.00
 
 # Measured against a real 43-page textbook chapter using the free
 # count_tokens endpoint: 42 cards came to ~5,275 tokens of JSON (~126 each)
-# from ~9,435 input tokens (~one card per 225 input tokens).
+# from ~9,435 input tokens of source text (~one card per 225 text tokens).
 OUTPUT_TOKENS_PER_CARD = 126
-INPUT_TOKENS_PER_CARD = 225
-# Adaptive thinking is billed as output on top of the visible JSON. This range
-# is an assumption, not a measurement — the actual figure printed after each
-# run is the number to trust.
-THINKING_FACTOR_LOW = 1.2
-THINKING_FACTOR_HIGH = 3.0
+# Cards scale with how much *reading* there is, not how many pictures. Image
+# tokens must stay out of this: a chapter's 48k image tokens would otherwise
+# predict a 200-card deck from a 42-card lecture.
+TEXT_TOKENS_PER_CARD = 225
+# Adaptive thinking is billed as output on top of the visible JSON. Reconciled
+# against a real account total of $0.67 across six calls, thinking added only
+# about 10% for this task — well below the 20-200% first assumed. Kept as a
+# band because a denser lecture may reason more; the actual figure printed
+# after every run is the number to trust over this.
+THINKING_FACTOR_LOW = 1.0
+THINKING_FACTOR_HIGH = 1.6
 
 # Anki's built-in note types, via genanki's canonical definitions. Do not
 # hand-roll these: a mismatched model ID makes Anki fork the note type on
@@ -188,36 +193,36 @@ def count_input_tokens(
     topic_text: str | None,
     images: list[dict],
     system_prompt: str,
-) -> int:
-    """Exact input token count, without uploading the images.
+) -> tuple[int, int]:
+    """Exact input token count as (text_tokens, image_tokens).
 
     count_tokens is free, but sending 50 images to it would mean pushing
     several megabytes twice. The text is counted exactly via the API and the
-    images are added with the size formula above.
+    images are added with the size formula above. The two are kept separate
+    because only the text predicts how many cards come back.
     """
-    text_only_prompt = build_prompt(pdf_text, topic_text, [])
     try:
-        counted = client.messages.count_tokens(
+        text_tokens = client.messages.count_tokens(
             model=MODEL,
             system=system_prompt,
             thinking={"type": "adaptive"},
-            messages=[{"role": "user", "content": text_only_prompt}],
+            messages=[{"role": "user", "content": build_prompt(pdf_text, topic_text, [])}],
         ).input_tokens
     except APIError:
         # Fall back to a rough heuristic rather than failing the whole run
-        counted = (len(pdf_text or "") + len(topic_text or "")) // 4
+        text_tokens = (len(pdf_text or "") + len(topic_text or "")) // 4
     # Each image also carries its filename label, which is a handful of tokens
-    return counted + sum(image_tokens(i) + 15 for i in images)
+    return text_tokens, sum(image_tokens(i) + 15 for i in images)
 
 
-def estimate_cost(input_tokens: int) -> tuple[float, float]:
+def estimate_cost(text_tokens: int, img_tokens: int) -> tuple[float, float]:
     """Estimated (low, high) USD for a run, counting output as well as input.
 
-    Output dominates: it is billed at 5x the input rate, and a deck is a few
-    thousand tokens of JSON plus however much the model spends thinking.
+    Output matters more than its token count suggests: it is billed at 5x the
+    input rate, so a few thousand tokens of JSON can outweigh a long PDF.
     """
-    input_cost = input_tokens / 1_000_000 * INPUT_COST_PER_MTOK
-    expected_cards = max(10, min(60, input_tokens // INPUT_TOKENS_PER_CARD))
+    input_cost = (text_tokens + img_tokens) / 1_000_000 * INPUT_COST_PER_MTOK
+    expected_cards = max(10, min(60, text_tokens // TEXT_TOKENS_PER_CARD))
     visible_output = expected_cards * OUTPUT_TOKENS_PER_CARD
     low = input_cost + visible_output * THINKING_FACTOR_LOW / 1_000_000 * OUTPUT_COST_PER_MTOK
     high = input_cost + visible_output * THINKING_FACTOR_HIGH / 1_000_000 * OUTPUT_COST_PER_MTOK
@@ -512,9 +517,14 @@ def cmd_generate(
         print(f"Reading {topic_path.name}...")
         topic_text = topic_path.read_text(encoding="utf-8")
 
-    tokens_in = count_input_tokens(client, pdf_text, topic_text, images, system_prompt())
-    low, high = estimate_cost(tokens_in)
-    print(f"Estimated cost: ${low:.2f}–${high:.2f}  ({tokens_in:,} input tokens)")
+    text_tokens, img_tokens = count_input_tokens(
+        client, pdf_text, topic_text, images, system_prompt()
+    )
+    low, high = estimate_cost(text_tokens, img_tokens)
+    detail = f"{text_tokens:,} text"
+    if img_tokens:
+        detail += f" + {img_tokens:,} image"
+    print(f"Estimated cost: ${low:.2f}–${high:.2f}  ({detail} tokens in)")
     # Gate on the upper bound: better to over-warn than to overspend silently.
     if high > COST_CONFIRM_THRESHOLD and not assume_yes:
         if input("  Continue? [y/N] ").strip().lower() not in ("y", "yes"):
