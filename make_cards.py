@@ -35,12 +35,23 @@ MIN_IMAGE_PX = 150
 # bigger costs bytes and request-size budget without adding quality
 MAX_IMAGE_DIM = 1568
 
-# Rough per-image token cost for the estimate; real usage varies with dimensions
-TOKENS_PER_IMAGE = 1600
-# claude-opus-5 input pricing, USD per million tokens
+# claude-opus-5 pricing, USD per million tokens. Output is 5x input, which is
+# why an input-only estimate is badly misleading for a card-generating run.
 INPUT_COST_PER_MTOK = 5.00
+OUTPUT_COST_PER_MTOK = 25.00
 # Above this estimated cost, ask before spending
 COST_CONFIRM_THRESHOLD = 1.00
+
+# Measured against a real 43-page textbook chapter using the free
+# count_tokens endpoint: 42 cards came to ~5,275 tokens of JSON (~126 each)
+# from ~9,435 input tokens (~one card per 225 input tokens).
+OUTPUT_TOKENS_PER_CARD = 126
+INPUT_TOKENS_PER_CARD = 225
+# Adaptive thinking is billed as output on top of the visible JSON. This range
+# is an assumption, not a measurement — the actual figure printed after each
+# run is the number to trust.
+THINKING_FACTOR_LOW = 1.2
+THINKING_FACTOR_HIGH = 3.0
 
 # Anki's built-in note types, via genanki's canonical definitions. Do not
 # hand-roll these: a mismatched model ID makes Anki fork the note type on
@@ -149,6 +160,8 @@ def extract_pdf_images(pdf_path: Path) -> list[dict]:
                     "name": f"img{len(images):03d}.jpg",
                     "data": pix.tobytes("jpg", jpg_quality=85),
                     "page": page_num + 1,
+                    "width": pix.width,
+                    "height": pix.height,
                 })
             except Exception as exc:
                 print(f"  Skipped an image on page {page_num + 1}: {exc}", file=sys.stderr)
@@ -160,10 +173,63 @@ def extract_pdf_images(pdf_path: Path) -> list[dict]:
     return images
 
 
-def estimate_cost(pdf_text: str | None, topic_text: str | None, images: list[dict]) -> float:
-    chars = len(pdf_text or "") + len(topic_text or "")
-    tokens = chars / 4 + len(images) * TOKENS_PER_IMAGE
-    return tokens / 1_000_000 * INPUT_COST_PER_MTOK
+def image_tokens(img: dict) -> int:
+    """Anthropic's documented approximation for image token cost.
+
+    Validated against count_tokens on a real extracted diagram: predicted
+    1088 vs actual 1057 tokens, so within ~3%.
+    """
+    return int(img["width"] * img["height"] / 750)
+
+
+def count_input_tokens(
+    client: Anthropic,
+    pdf_text: str | None,
+    topic_text: str | None,
+    images: list[dict],
+    system_prompt: str,
+) -> int:
+    """Exact input token count, without uploading the images.
+
+    count_tokens is free, but sending 50 images to it would mean pushing
+    several megabytes twice. The text is counted exactly via the API and the
+    images are added with the size formula above.
+    """
+    text_only_prompt = build_prompt(pdf_text, topic_text, [])
+    try:
+        counted = client.messages.count_tokens(
+            model=MODEL,
+            system=system_prompt,
+            thinking={"type": "adaptive"},
+            messages=[{"role": "user", "content": text_only_prompt}],
+        ).input_tokens
+    except APIError:
+        # Fall back to a rough heuristic rather than failing the whole run
+        counted = (len(pdf_text or "") + len(topic_text or "")) // 4
+    # Each image also carries its filename label, which is a handful of tokens
+    return counted + sum(image_tokens(i) + 15 for i in images)
+
+
+def estimate_cost(input_tokens: int) -> tuple[float, float]:
+    """Estimated (low, high) USD for a run, counting output as well as input.
+
+    Output dominates: it is billed at 5x the input rate, and a deck is a few
+    thousand tokens of JSON plus however much the model spends thinking.
+    """
+    input_cost = input_tokens / 1_000_000 * INPUT_COST_PER_MTOK
+    expected_cards = max(10, min(60, input_tokens // INPUT_TOKENS_PER_CARD))
+    visible_output = expected_cards * OUTPUT_TOKENS_PER_CARD
+    low = input_cost + visible_output * THINKING_FACTOR_LOW / 1_000_000 * OUTPUT_COST_PER_MTOK
+    high = input_cost + visible_output * THINKING_FACTOR_HIGH / 1_000_000 * OUTPUT_COST_PER_MTOK
+    return low, high
+
+
+def actual_cost(usage) -> float:
+    """Real USD for a completed call, from the API's own token counts."""
+    return (
+        usage.input_tokens / 1_000_000 * INPUT_COST_PER_MTOK
+        + usage.output_tokens / 1_000_000 * OUTPUT_COST_PER_MTOK
+    )
 
 
 def build_prompt(pdf_text: str | None, topic_text: str | None, images: list[dict]) -> list[dict]:
@@ -222,7 +288,8 @@ def build_prompt(pdf_text: str | None, topic_text: str | None, images: list[dict
     return content
 
 
-def generate_cards(pdf_text: str | None, topic_text: str | None, images: list[dict]) -> dict:
+def get_client() -> Anthropic:
+    """Build the API client, failing early and clearly if no key is set."""
     load_dotenv()
     if not os.environ.get("ANTHROPIC_API_KEY"):
         print(
@@ -231,24 +298,41 @@ def generate_cards(pdf_text: str | None, topic_text: str | None, images: list[di
             file=sys.stderr,
         )
         sys.exit(1)
+    return Anthropic()
 
-    client = Anthropic()
+
+def system_prompt() -> str:
     style = STYLE_PATH.read_text(encoding="utf-8") if STYLE_PATH.exists() else ""
-    system_prompt = style or "You are an expert at creating Anki flashcards."
+    return style or "You are an expert at creating Anki flashcards."
 
+
+def generate_cards(
+    client: Anthropic,
+    pdf_text: str | None,
+    topic_text: str | None,
+    images: list[dict],
+) -> dict:
     print("Calling Claude (this can take a minute)...", flush=True)
     try:
         with client.messages.stream(
             model=MODEL,
             max_tokens=MAX_TOKENS,
             thinking={"type": "adaptive"},
-            system=system_prompt,
+            system=system_prompt(),
             messages=[{"role": "user", "content": build_prompt(pdf_text, topic_text, images)}],
         ) as stream:
             response = stream.get_final_message()
     except APIError as exc:
         print(f"Error: the Claude API call failed — {exc}", file=sys.stderr)
         sys.exit(1)
+
+    # Report what the run really cost, so the estimate above can be sanity
+    # checked against reality rather than trusted blindly.
+    usage = response.usage
+    print(
+        f"  Actual cost: ${actual_cost(usage):.2f} "
+        f"({usage.input_tokens:,} in + {usage.output_tokens:,} out)"
+    )
 
     if response.stop_reason == "max_tokens":
         print(
@@ -409,6 +493,10 @@ def cmd_generate(
     assume_yes: bool,
 ) -> None:
     ensure_dirs()
+    # Check the key before doing any slow extraction work, so a missing key
+    # is reported immediately rather than after parsing a 40-page PDF.
+    client = get_client()
+
     pdf_text = None
     topic_text = None
     images: list[dict] = []
@@ -424,9 +512,11 @@ def cmd_generate(
         print(f"Reading {topic_path.name}...")
         topic_text = topic_path.read_text(encoding="utf-8")
 
-    cost = estimate_cost(pdf_text, topic_text, images)
-    print(f"Estimated input cost: about ${cost:.2f}")
-    if cost > COST_CONFIRM_THRESHOLD and not assume_yes:
+    tokens_in = count_input_tokens(client, pdf_text, topic_text, images, system_prompt())
+    low, high = estimate_cost(tokens_in)
+    print(f"Estimated cost: ${low:.2f}–${high:.2f}  ({tokens_in:,} input tokens)")
+    # Gate on the upper bound: better to over-warn than to overspend silently.
+    if high > COST_CONFIRM_THRESHOLD and not assume_yes:
         if input("  Continue? [y/N] ").strip().lower() not in ("y", "yes"):
             print("Cancelled.")
             return
@@ -439,7 +529,7 @@ def cmd_generate(
             path.write_bytes(img["data"])
             images_by_name[img["name"]] = path
 
-        card_data = generate_cards(pdf_text, topic_text, images)
+        card_data = generate_cards(client, pdf_text, topic_text, images)
 
         deck_name = card_data.get("deck") or "Anki::Cards"
         card_data["deck"] = deck_name
