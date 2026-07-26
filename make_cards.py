@@ -31,6 +31,9 @@ MAX_TOKENS = 32000
 MAX_IMAGES = 50
 # Skip images smaller than this in either dimension (logos, bullets, rules)
 MIN_IMAGE_PX = 150
+# Claude's vision models cap effective resolution around this; anything
+# bigger costs bytes and request-size budget without adding quality
+MAX_IMAGE_DIM = 1568
 
 # Rough per-image token cost for the estimate; real usage varies with dimensions
 TOKENS_PER_IMAGE = 1600
@@ -68,20 +71,59 @@ def question_of(card: dict) -> str:
     return card["text"] if card["model"] == "Cloze" else card["front"]
 
 
+def unique_path(path: Path) -> Path:
+    """Return a path that does not exist yet, so a deck is never overwritten.
+
+    Two runs of the same source on the same day would otherwise collide on
+    {deck}_{date}.apkg and the second would silently destroy the first.
+    """
+    if not path.exists():
+        return path
+    n = 2
+    while True:
+        candidate = path.with_name(f"{path.stem}_{n}{path.suffix}")
+        if not candidate.exists():
+            return candidate
+        n += 1
+
+
+def flatten_on_white(pix: fitz.Pixmap) -> fitz.Pixmap:
+    """Composite a pixmap with an alpha channel onto a white background.
+
+    PDFs keep transparency in a separate soft-mask object, and JPEG cannot
+    carry alpha at all. Without this, transparent regions encode as solid
+    black — which is exactly what happens to the transparent-background
+    diagrams that slide exports are full of, making them unreadable on a card.
+    """
+    doc = fitz.open()
+    page = doc.new_page(width=pix.width, height=pix.height)
+    page.draw_rect(page.rect, color=None, fill=(1, 1, 1), overlay=False)
+    page.insert_image(page.rect, pixmap=pix)
+    flat = page.get_pixmap()
+    doc.close()
+    return flat
+
+
 def extract_pdf_text(pdf_path: Path) -> str:
     """Extract PDF text as Markdown, preserving headings, lists and tables."""
     return pymupdf4llm.to_markdown(str(pdf_path))
 
 
 def extract_pdf_images(pdf_path: Path) -> list[dict]:
-    """Extract PDF images as PNG bytes, deduped and filtered by minimum size."""
+    """Extract PDF images as JPEG bytes, deduped and filtered by minimum size.
+
+    JPEG rather than PNG: textbook diagrams are continuous-tone and PNG
+    compresses them poorly — a 43-page chapter's worth of images can otherwise
+    exceed Claude's per-request size limit (confirmed: 50 images, 39MB as PNG
+    vs 6.5MB as JPEG at quality 85, for the same visual content).
+    """
     doc = fitz.open(str(pdf_path))
     images: list[dict] = []
     seen_xrefs: set[int] = set()
 
     for page_num, page in enumerate(doc):
         for img_info in page.get_images(full=True):
-            xref = img_info[0]
+            xref, smask_xref = img_info[0], img_info[1]
             if xref in seen_xrefs:
                 continue
             seen_xrefs.add(xref)
@@ -92,9 +134,20 @@ def extract_pdf_images(pdf_path: Path) -> list[dict]:
                 # Convert CMYK and other non-RGB colour spaces before encoding
                 if pix.n - pix.alpha > 3:
                     pix = fitz.Pixmap(fitz.csRGB, pix)
+                # Re-attach the soft mask and flatten onto white. Extraction
+                # returns only the base image, so transparent areas would
+                # otherwise come through as black. Do this at native size, so
+                # the mask still matches the base image's dimensions.
+                if smask_xref:
+                    pix = flatten_on_white(fitz.Pixmap(pix, fitz.Pixmap(doc, smask_xref)))
+                # Downscale oversized images — Claude gains nothing past
+                # MAX_IMAGE_DIM and large originals can blow the request-size limit
+                if max(pix.width, pix.height) > MAX_IMAGE_DIM:
+                    scale = MAX_IMAGE_DIM / max(pix.width, pix.height)
+                    pix = fitz.Pixmap(pix, int(pix.width * scale), int(pix.height * scale))
                 images.append({
-                    "name": f"img{len(images):03d}.png",
-                    "data": pix.tobytes("png"),
+                    "name": f"img{len(images):03d}.jpg",
+                    "data": pix.tobytes("jpg", jpg_quality=85),
                     "page": page_num + 1,
                 })
             except Exception as exc:
@@ -161,7 +214,7 @@ def build_prompt(pdf_text: str | None, topic_text: str | None, images: list[dict
             "type": "image",
             "source": {
                 "type": "base64",
-                "media_type": "image/png",
+                "media_type": "image/jpeg",
                 "data": base64.standard_b64encode(img["data"]).decode(),
             },
         })
@@ -396,7 +449,7 @@ def cmd_generate(
             sys.exit(1)
 
         safe_name = re.sub(r"[^\w.-]+", "_", deck_name.replace("::", "_"))
-        output_path = OUTPUT_DIR / f"{safe_name}_{date.today().isoformat()}.apkg"
+        output_path = unique_path(OUTPUT_DIR / f"{safe_name}_{date.today().isoformat()}.apkg")
 
         print(f"Building '{deck_name}'...")
         build_apkg(card_data, cards, output_path, images_by_name)
