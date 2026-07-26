@@ -12,10 +12,9 @@ One command reads your PDF, calls Claude, and produces an `.apkg` file ready to 
 
 ## Setup (first time only)
 
-1. **Get the project onto your laptop**
-
-   Clone it if you have the repository URL, otherwise copy the project folder across:
+1. **Clone the repo**
    ```
+   git clone https://github.com/pclutton/anki-cards
    cd anki-cards
    ```
 
