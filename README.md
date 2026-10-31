@@ -107,7 +107,16 @@ matter:
 
 Embedded images (`![[diagram.png]]` or `![](path/diagram.png)`) are resolved by searching your
 vault, so attachments stored in a separate folder are found without copying anything. The vault is
-located by looking for the `.obsidian` folder above the note.
+found automatically by looking for the `.obsidian` folder above the note — nothing to configure.
+
+**If you copy a note out of the vault** into `Source Material/`, there's no `.obsidian` above it
+any more and the diagrams would go missing. Set the vault path once in `.env` to cover that:
+
+```
+OBSIDIAN_VAULT=C:\Users\you\Documents\MyVault
+```
+
+A note still inside the vault always takes precedence over this setting, so it's safe to leave on.
 
 If an image can't be found, the script says so and carries on rather than failing — check the
 vault is reachable from this machine (a synced folder needs to have finished syncing).
@@ -155,15 +164,10 @@ it's worth checking the deck for strays with Anki's **Browse** window.
 
 ## Writing topic request files
 
-Create a `.md` file in `Topics Requested/`. Example:
+A topic request tells Claude what to focus on in a lecture. Create a `.md` file in
+`Topics Requested/`:
 
 ```markdown
-## Deck
-Anatomy S2::Krebs Cycle
-
-## Source File
-Week 4 - Metabolism.pdf
-
 ## Special Emphasis
 - The role of acetyl-CoA
 - Products per turn of the cycle
@@ -171,16 +175,36 @@ Week 4 - Metabolism.pdf
 ```
 
 `## Special Emphasis` sections get more cards, exam-style phrasing, and an `exam-priority` tag.
-If `## Source File` is `(none)`, Claude generates from general knowledge.
+
+**Name it after the source file and it's picked up automatically.** A topic request called
+`Week 4 Metabolism.md` is applied to `Week 4 Metabolism.md` (or `.pdf`) without you doing
+anything — so `--all` works even when each lecture has its own focus:
+
+```
+uv run make_cards.py --all --deck "Anatomy S2"
+```
+
+`--inbox` shows you which sources have a topic request paired, and which requests have no
+matching source.
+
+To apply one topic file to *every* file in a run instead, pass it explicitly — this overrides
+any paired files:
+
+```
+uv run make_cards.py --all --topic "exam-revision.md"
+```
+
+A topic file on its own, with no source, generates cards from Claude's general knowledge.
 
 ## Folder structure
 
 ```
 anki-cards/
   make_cards.py          <- the main script
-  STYLE.md               <- edit this to change card style
-  Source Material/       <- drop your PDFs here
-  Topics Requested/      <- drop topic .md files here
+  STYLE.md               <- the shared style guide (don't edit; updates overwrite it)
+  STYLE.local.md         <- your own tweaks go here (never committed)
+  Source Material/       <- notes or PDFs, if you don't point at your vault
+  Topics Requested/      <- topic .md files; name one after a source to pair it
   Card Decks/            <- finished .apkg files (double-click to import)
-  .env                   <- your API key (never committed)
+  .env                   <- your API key, and optionally OBSIDIAN_VAULT
 ```

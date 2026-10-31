@@ -185,11 +185,23 @@ def find_vault_root(note: Path) -> Path:
     """The Obsidian vault containing a note, or its own folder if there is none.
 
     Attachments usually live in a vault-level folder rather than beside the
-    note, so resolving embeds means searching the whole vault.
+    note, so resolving embeds means searching the whole vault. A note copied
+    out of the vault has no .obsidian above it, which is why OBSIDIAN_VAULT
+    exists as a fallback — without it, copying a note into Source Material/
+    silently loses every diagram.
     """
     for parent in [note.parent, *note.parents]:
         if (parent / ".obsidian").is_dir():
             return parent
+
+    configured = os.environ.get("OBSIDIAN_VAULT", "").strip().strip('"')
+    if configured:
+        vault = Path(configured).expanduser()
+        if vault.is_dir():
+            return vault
+        print(f"  Warning: OBSIDIAN_VAULT is set to '{configured}' but that folder "
+              "does not exist", file=sys.stderr)
+
     return note.parent
 
 
@@ -598,16 +610,21 @@ def cmd_inbox() -> None:
     print("=== Source Material ===")
     files = sorted(f for f in SOURCE_DIR.iterdir() if f.is_file() and not f.name.startswith("."))
     for f in files:
-        print(f"  {f.name}")
+        paired = TOPICS_DIR / f"{f.stem}.md"
+        note = f"   + topic request {paired.name}" if paired.is_file() else ""
+        print(f"  {f.name}{note}")
     if not files:
-        print("  (empty — drop your PDFs here)")
+        print("  (empty — drop your notes or PDFs here)")
 
     print("\n=== Topics Requested ===")
     topics = sorted(TOPICS_DIR.glob("*.md"))
+    stems = {f.stem for f in files}
     for f in topics:
-        print(f"  {f.name}")
+        note = "" if f.stem in stems else "   (no matching source — use --topic to apply it)"
+        print(f"  {f.name}{note}")
     if not topics:
         print("  (empty — drop topic request .md files here)")
+        print("  Name one after a source file to have it used automatically.")
 
 
 def cmd_unprotect(pdf_path: Path) -> None:
@@ -648,6 +665,24 @@ def deck_name_for(source: Path, parent: str | None) -> str:
     if parent:
         return f"{parent.strip().strip(':')}::{leaf}"
     return leaf
+
+
+def topic_for(source: Path | None, explicit: str | None) -> tuple[str | None, str | None]:
+    """The topic request that applies to one source, and where it came from.
+
+    An explicit --topic applies to every file in the batch. Otherwise a topic
+    file is paired by name, so "Week 2.md" in Topics Requested/ is picked up
+    automatically for "Week 2.md" in the batch — which is what makes --all
+    usable when each lecture has its own focus.
+    """
+    if explicit is not None:
+        return explicit, None
+    if source is None:
+        return None, None
+    paired = TOPICS_DIR / f"{source.stem}.md"
+    if paired.is_file():
+        return paired.read_text(encoding="utf-8"), paired.name
+    return None, None
 
 
 def load_source(source: Path, include_images: bool) -> tuple[str, list[dict]]:
@@ -737,7 +772,10 @@ def cmd_generate(
         print(f"Reading {label}...")
         try:
             text, images = load_source(source, include_images) if source else (None, [])
-            tt, it = count_input_tokens(client, text, topic_text, images, system_prompt())
+            this_topic, paired_from = topic_for(source, topic_text)
+            if paired_from:
+                print(f"  using topic request {paired_from}")
+            tt, it = count_input_tokens(client, text, this_topic, images, system_prompt())
         except Exception as exc:
             print(f"  Failed to read: {exc}", file=sys.stderr)
             failed.append(label)
@@ -748,7 +786,7 @@ def cmd_generate(
         jobs.append({
             "label": label,
             "text": text,
-            "topic_text": topic_text,
+            "topic_text": this_topic,
             "images": images,
             "deck": deck_name_for(source or topic_path, deck_parent),
         })
@@ -792,6 +830,9 @@ def cmd_generate(
 
 
 def main() -> None:
+    # Settings such as OBSIDIAN_VAULT are read from .env, so load it before
+    # anything that might need them
+    load_dotenv()
     parser = argparse.ArgumentParser(
         description="Generate Anki decks from lecture notes via the Claude API")
     parser.add_argument("sources", nargs="*",
