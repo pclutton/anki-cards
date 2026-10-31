@@ -146,9 +146,17 @@ vault is reachable from this machine (a synced folder needs to have finished syn
 Each file becomes its own deck, named after the file. `Week 2 Gas Exchange.md` becomes a deck
 called `Week 2 Gas Exchange`, or `Anatomy S2::Week 2 Gas Exchange` with `--deck "Anatomy S2"`.
 
+Without `--deck` each lecture becomes a top-level deck of its own. With it they're grouped as
+subdecks, so a term's lectures sit together and you can study the parent to cover all of them.
+
 Names come from the filename rather than being chosen per run, so **re-running a lecture updates
-the same deck** instead of creating a near-duplicate beside it. Rename the file and you get a new
-deck, so keep filenames stable.
+the same deck** instead of creating a near-duplicate beside it.
+
+**Keep the filename and `--deck` the same from one run to the next.** The deck name determines
+both the deck and the identity of every card in it, so changing either is not a rename — you get
+a second copy of the whole deck and your review history stays behind in the old one. Decide on a
+parent before your first real run and stick with it. (If you do need to reorganise later, rename
+the deck inside Anki rather than re-running with a different `--deck`.)
 
 ## Customising card style
 
