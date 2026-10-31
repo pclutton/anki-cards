@@ -201,6 +201,12 @@ def find_vault_root(note: Path) -> Path:
             return vault
         print(f"  Warning: OBSIDIAN_VAULT is set to '{configured}' but that folder "
               "does not exist", file=sys.stderr)
+        if "\t" in configured or "\n" in configured:
+            # dotenv unescapes double-quoted values, so "C:\temp\..." becomes
+            # a literal tab and the path silently stops matching anything
+            print("    It looks like the path is in double quotes in .env. "
+                  "Remove the quotes — a Windows path like C:\\temp is mangled by them.",
+                  file=sys.stderr)
 
     return note.parent
 

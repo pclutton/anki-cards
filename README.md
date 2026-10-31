@@ -110,11 +110,16 @@ vault, so attachments stored in a separate folder are found without copying anyt
 found automatically by looking for the `.obsidian` folder above the note — nothing to configure.
 
 **If you copy a note out of the vault** into `Source Material/`, there's no `.obsidian` above it
-any more and the diagrams would go missing. Set the vault path once in `.env` to cover that:
+any more and the diagrams would go missing. Only in that case, add a second line to `.env`
+alongside your API key:
 
 ```
+ANTHROPIC_API_KEY=sk-ant-...
 OBSIDIAN_VAULT=C:\Users\you\Documents\MyVault
 ```
+
+**No quotes around the path.** `"C:\temp\notes"` in quotes is read as a tab character and
+silently stops working. Spaces in the path are fine without quotes.
 
 A note still inside the vault always takes precedence over this setting, so it's safe to leave on.
 
