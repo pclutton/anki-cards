@@ -120,14 +120,55 @@ def flatten_on_white(pix: fitz.Pixmap) -> fitz.Pixmap:
     return flat
 
 
+def normalise_pixmap(
+    pix: fitz.Pixmap, doc: fitz.Document | None = None, smask_xref: int = 0
+) -> fitz.Pixmap:
+    """Make a pixmap safe to encode as JPEG: RGB, no alpha, not oversized."""
+    # Convert CMYK and other non-RGB colour spaces before encoding
+    if pix.n - pix.alpha > 3:
+        pix = fitz.Pixmap(fitz.csRGB, pix)
+
+    # Re-attach the soft mask and flatten onto white. Extraction returns only
+    # the base image, so transparent areas would otherwise come through black.
+    # fitz.Pixmap(base, mask) REFUSES a base that already carries its own alpha
+    # channel, and some real images have both — dropping that baked alpha first
+    # is what keeps those images from being silently discarded.
+    if smask_xref and doc is not None:
+        base = fitz.Pixmap(pix, 0) if pix.alpha else pix
+        pix = flatten_on_white(fitz.Pixmap(base, fitz.Pixmap(doc, smask_xref)))
+    elif pix.alpha:
+        pix = flatten_on_white(pix)
+
+    # Downscale oversized images — Claude gains nothing past MAX_IMAGE_DIM and
+    # large originals can blow the request-size limit
+    if max(pix.width, pix.height) > MAX_IMAGE_DIM:
+        scale = MAX_IMAGE_DIM / max(pix.width, pix.height)
+        pix = fitz.Pixmap(pix, int(pix.width * scale), int(pix.height * scale))
+    return pix
+
+
+def encode_image(pix: fitz.Pixmap, name: str, page: int = 1) -> dict:
+    return {
+        "name": name,
+        "data": pix.tobytes("jpg", jpg_quality=85),
+        "page": page,
+        "width": pix.width,
+        "height": pix.height,
+    }
+
+
 TEXT_SUFFIXES = {".md", ".markdown", ".txt"}
+IMAGE_SUFFIXES = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp", ".tif", ".tiff"}
+
+# Obsidian wiki embeds ![[file.png|300]] and standard markdown ![alt](path)
+EMBED_RE = re.compile(r"!\[\[([^\]|#]+?)(?:\|[^\]]*)?\]\]|!\[[^\]]*\]\(\s*<?([^)>\s]+)>?[^)]*\)")
 
 
 def extract_source_text(path: Path) -> str:
     """Read a source document as Markdown.
 
     Markdown and text files are passed through untouched. This matters for
-    Obsidian exports: ==highlighted== text marks what the student thought
+    Obsidian notes: ==highlighted== text marks what the student thought
     important, and that marking is destroyed by a trip through PDF — PDFs
     carry no highlight annotation and no colour survives text extraction, so
     the highlight rule in STYLE.md can only fire on markdown input.
@@ -135,6 +176,85 @@ def extract_source_text(path: Path) -> str:
     if path.suffix.lower() in TEXT_SUFFIXES:
         return path.read_text(encoding="utf-8")
     return pymupdf4llm.to_markdown(str(path))
+
+
+def find_vault_root(note: Path) -> Path:
+    """The Obsidian vault containing a note, or its own folder if there is none.
+
+    Attachments usually live in a vault-level folder rather than beside the
+    note, so resolving embeds means searching the whole vault.
+    """
+    for parent in [note.parent, *note.parents]:
+        if (parent / ".obsidian").is_dir():
+            return parent
+    return note.parent
+
+
+def index_images(root: Path, limit: int = 20000) -> dict[str, Path]:
+    """Map lowercase filename -> path for every image under root."""
+    index: dict[str, Path] = {}
+    seen = 0
+    for p in root.rglob("*"):
+        seen += 1
+        if seen > limit:
+            print(f"  Note: stopped indexing {root} after {limit} files", file=sys.stderr)
+            break
+        if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES:
+            index.setdefault(p.name.lower(), p)
+    return index
+
+
+def extract_markdown_images(note: Path, text: str) -> tuple[str, list[dict]]:
+    """Resolve image embeds in a markdown note.
+
+    Returns the text with each embed replaced by a reference to the bundled
+    filename, plus the loaded images. Rewriting in place keeps each diagram
+    anchored to the point in the notes where it appears — context the PDF
+    path cannot provide, since there the images arrive detached from the text.
+    """
+    embeds = [(m.group(1) or m.group(2) or "").strip() for m in EMBED_RE.finditer(text)]
+    embeds = [e for e in embeds if Path(e).suffix.lower() in IMAGE_SUFFIXES]
+    if not embeds:
+        return text, []
+
+    vault = find_vault_root(note)
+    index = index_images(vault)
+    if vault != SOURCE_DIR:
+        index = {**index_images(SOURCE_DIR), **index}
+
+    images: list[dict] = []
+    resolved: dict[str, str] = {}
+    missing: list[str] = []
+
+    for ref in embeds:
+        if ref in resolved or ref in missing:
+            continue
+        candidate = (note.parent / ref) if not Path(ref).is_absolute() else Path(ref)
+        src = candidate if candidate.is_file() else index.get(Path(ref).name.lower())
+        if src is None:
+            missing.append(ref)
+            continue
+        try:
+            pix = fitz.Pixmap(str(src))
+            if pix.width < MIN_IMAGE_PX or pix.height < MIN_IMAGE_PX:
+                continue
+            name = f"img{len(images):03d}.jpg"
+            images.append(encode_image(normalise_pixmap(pix), name))
+            resolved[ref] = name
+        except Exception as exc:
+            print(f"  Could not read {src.name}: {exc}", file=sys.stderr)
+            missing.append(ref)
+
+    def swap(m: re.Match) -> str:
+        ref = (m.group(1) or m.group(2) or "").strip()
+        name = resolved.get(ref)
+        return f"[diagram: {name}]" if name else m.group(0)
+
+    if missing:
+        print(f"  Warning: {len(missing)} embedded image(s) not found "
+              f"(e.g. {missing[0]}) — is the vault reachable?", file=sys.stderr)
+
+    return EMBED_RE.sub(swap, text), images[:MAX_IMAGES]
 
 
 def extract_pdf_images(pdf_path: Path) -> list[dict]:
@@ -148,6 +268,7 @@ def extract_pdf_images(pdf_path: Path) -> list[dict]:
     doc = fitz.open(str(pdf_path))
     images: list[dict] = []
     seen_xrefs: set[int] = set()
+    dropped = 0
 
     for page_num, page in enumerate(doc):
         for img_info in page.get_images(full=True):
@@ -159,30 +280,15 @@ def extract_pdf_images(pdf_path: Path) -> list[dict]:
                 pix = fitz.Pixmap(doc, xref)
                 if pix.width < MIN_IMAGE_PX or pix.height < MIN_IMAGE_PX:
                     continue
-                # Convert CMYK and other non-RGB colour spaces before encoding
-                if pix.n - pix.alpha > 3:
-                    pix = fitz.Pixmap(fitz.csRGB, pix)
-                # Re-attach the soft mask and flatten onto white. Extraction
-                # returns only the base image, so transparent areas would
-                # otherwise come through as black. Do this at native size, so
-                # the mask still matches the base image's dimensions.
-                if smask_xref:
-                    pix = flatten_on_white(fitz.Pixmap(pix, fitz.Pixmap(doc, smask_xref)))
-                # Downscale oversized images — Claude gains nothing past
-                # MAX_IMAGE_DIM and large originals can blow the request-size limit
-                if max(pix.width, pix.height) > MAX_IMAGE_DIM:
-                    scale = MAX_IMAGE_DIM / max(pix.width, pix.height)
-                    pix = fitz.Pixmap(pix, int(pix.width * scale), int(pix.height * scale))
-                images.append({
-                    "name": f"img{len(images):03d}.jpg",
-                    "data": pix.tobytes("jpg", jpg_quality=85),
-                    "page": page_num + 1,
-                    "width": pix.width,
-                    "height": pix.height,
-                })
+                pix = normalise_pixmap(pix, doc=doc, smask_xref=smask_xref)
+                images.append(encode_image(pix, f"img{len(images):03d}.jpg", page=page_num + 1))
             except Exception as exc:
+                dropped += 1
                 print(f"  Skipped an image on page {page_num + 1}: {exc}", file=sys.stderr)
 
+    if dropped:
+        print(f"  Warning: {dropped} image(s) could not be decoded and were left out",
+              file=sys.stderr)
     if len(images) > MAX_IMAGES:
         print(f"  Note: {len(images)} images found, using the first {MAX_IMAGES}")
         images = images[:MAX_IMAGES]
@@ -249,7 +355,12 @@ def actual_cost(usage) -> float:
     )
 
 
-def build_prompt(pdf_text: str | None, topic_text: str | None, images: list[dict]) -> list[dict]:
+def build_prompt(
+    pdf_text: str | None,
+    topic_text: str | None,
+    images: list[dict],
+    deck_name: str | None = None,
+) -> list[dict]:
     text_parts = []
     if pdf_text:
         text_parts.append(f"<source_material>\n{pdf_text}\n</source_material>")
@@ -265,7 +376,7 @@ def build_prompt(pdf_text: str | None, topic_text: str | None, images: list[dict
         "guide in the system prompt.\n\n"
         "Return ONLY a JSON object — no prose, no markdown fences — with this exact structure:\n"
         "{\n"
-        '  "deck": "Subject::Topic",\n'
+        f'  "deck": "{deck_name or "Subject::Topic"}",\n'
         '  "tags": ["tag1", "tag2"],\n'
         '  "cards": [\n'
         '    {"model": "Basic", "front": "Question?", "back": "Answer", "tags": ["easy"]},\n'
@@ -280,6 +391,8 @@ def build_prompt(pdf_text: str | None, topic_text: str | None, images: list[dict
         "- HTML is allowed in any field (<b>, <br>, <img>)\n"
         "- Output raw JSON only — no text before or after the object"
     )
+    if deck_name:
+        instruction += f'\n- set "deck" to exactly "{deck_name}"'
     if images:
         # Mechanical only: how to reference a file so it resolves to bundled
         # media. Whether and where to use a diagram is STYLE.md's decision.
@@ -334,7 +447,8 @@ def generate_cards(
     pdf_text: str | None,
     topic_text: str | None,
     images: list[dict],
-) -> dict:
+    deck_name: str | None = None,
+) -> tuple[dict, float]:
     print("Calling Claude (this can take a minute)...", flush=True)
     try:
         with client.messages.stream(
@@ -342,7 +456,8 @@ def generate_cards(
             max_tokens=MAX_TOKENS,
             thinking={"type": "adaptive"},
             system=system_prompt(),
-            messages=[{"role": "user", "content": build_prompt(pdf_text, topic_text, images)}],
+            messages=[{"role": "user",
+                       "content": build_prompt(pdf_text, topic_text, images, deck_name)}],
         ) as stream:
             response = stream.get_final_message()
     except APIError as exc:
@@ -352,19 +467,15 @@ def generate_cards(
     # Report what the run really cost, so the estimate above can be sanity
     # checked against reality rather than trusted blindly.
     usage = response.usage
-    print(
-        f"  Actual cost: ${actual_cost(usage):.2f} "
-        f"({usage.input_tokens:,} in + {usage.output_tokens:,} out)"
-    )
+    spent = actual_cost(usage)
+    print(f"  Actual cost: ${spent:.2f} "
+          f"({usage.input_tokens:,} in + {usage.output_tokens:,} out)")
 
     if response.stop_reason == "max_tokens":
-        print(
-            "Error: Claude ran out of room before finishing the card list.\n"
-            "  The lecture is likely too long for one pass. Split the PDF and run each part,\n"
-            "  or use --text-only to leave more budget for the cards.",
-            file=sys.stderr,
+        raise RuntimeError(
+            "Claude ran out of room before finishing the card list — the source is "
+            "likely too long for one pass. Split it, or use --text-only."
         )
-        sys.exit(1)
 
     text = "".join(b.text for b in response.content if b.type == "text").strip()
 
@@ -376,18 +487,17 @@ def generate_cards(
         text = "\n".join(lines[1:])
 
     try:
-        return json.loads(text)
+        return json.loads(text), spent
     except json.JSONDecodeError as exc:
-        dump = OUTPUT_DIR / "last_failed_response.txt"
+        # Keep the paid-for response rather than discarding it
         OUTPUT_DIR.mkdir(exist_ok=True)
+        stem = re.sub(r"[^\w.-]+", "_", deck_name or "response")
+        dump = unique_path(OUTPUT_DIR / f"failed_{stem}.txt")
         dump.write_text(text, encoding="utf-8")
-        print(
-            f"Error: Claude's response was not valid JSON ({exc}).\n"
-            f"  The raw response was saved to {dump} so nothing is lost.\n"
-            "  Re-running usually fixes this.",
-            file=sys.stderr,
-        )
-        sys.exit(1)
+        raise RuntimeError(
+            f"Claude's response was not valid JSON ({exc}). "
+            f"Raw response saved to {dump.name} so nothing is lost."
+        ) from exc
 
 
 def validate_cards(card_data: dict) -> list[dict]:
@@ -509,49 +619,44 @@ def cmd_unprotect(pdf_path: Path) -> None:
     print(f"Saved unprotected PDF to {out_path}")
 
 
-def cmd_generate(
-    pdf_path: Path | None,
-    topic_path: Path | None,
-    include_images: bool,
-    assume_yes: bool,
-) -> None:
-    ensure_dirs()
-    # Check the key before doing any slow extraction work, so a missing key
-    # is reported immediately rather than after parsing a 40-page PDF.
-    client = get_client()
+def deck_name_for(source: Path, parent: str | None) -> str:
+    """Deck name derived from the filename, optionally under a parent deck.
 
-    pdf_text = None
-    topic_text = None
+    Deriving rather than letting the model name the deck keeps the name stable
+    across runs. The name decides both the deck id and every card's GUID, so a
+    reworded name would import as a second deck and strand the review history.
+    """
+    leaf = re.sub(r"\s+", " ", source.stem.replace("_", " ")).strip()
+    leaf = leaf.replace("::", "-")  # "::" is Anki's deck separator
+    if parent:
+        return f"{parent.strip().strip(':')}::{leaf}"
+    return leaf
+
+
+def load_source(source: Path, include_images: bool) -> tuple[str, list[dict]]:
+    """Read one source document and whatever diagrams belong with it."""
+    text = extract_source_text(source)
     images: list[dict] = []
 
-    if pdf_path:
-        print(f"Reading {pdf_path.name}...")
-        pdf_text = extract_source_text(pdf_path)
-        is_markdown = pdf_path.suffix.lower() in TEXT_SUFFIXES
-        if is_markdown and "==" in pdf_text:
+    if source.suffix.lower() in TEXT_SUFFIXES:
+        if "==" in text:
             print("  markdown source — ==highlighted== passages will be prioritised")
-        # Only PDFs carry embedded images to extract
-        if include_images and not is_markdown:
-            images = extract_pdf_images(pdf_path)
-            print(f"  {len(images)} usable image(s) found")
+        if include_images:
+            text, images = extract_markdown_images(source, text)
+    elif include_images:
+        images = extract_pdf_images(source)
 
-    if topic_path:
-        print(f"Reading {topic_path.name}...")
-        topic_text = topic_path.read_text(encoding="utf-8")
+    if include_images:
+        print(f"  {len(images)} usable image(s) found")
+    return text, images
 
-    text_tokens, img_tokens = count_input_tokens(
-        client, pdf_text, topic_text, images, system_prompt()
-    )
-    low, high = estimate_cost(text_tokens, img_tokens)
-    detail = f"{text_tokens:,} text"
-    if img_tokens:
-        detail += f" + {img_tokens:,} image"
-    print(f"Estimated cost: ${low:.2f}–${high:.2f}  ({detail} tokens in)")
-    # Gate on the upper bound: better to over-warn than to overspend silently.
-    if high > COST_CONFIRM_THRESHOLD and not assume_yes:
-        if input("  Continue? [y/N] ").strip().lower() not in ("y", "yes"):
-            print("Cancelled.")
-            return
+
+def generate_one(client: Anthropic, job: dict) -> float:
+    """Build one deck from one pre-loaded source. Returns actual cost in USD."""
+    source_text = job["text"]
+    topic_text = job["topic_text"]
+    images = job["images"]
+    deck_name = job["deck"]
 
     with tempfile.TemporaryDirectory() as tmp:
         media_dir = Path(tmp)
@@ -561,14 +666,14 @@ def cmd_generate(
             path.write_bytes(img["data"])
             images_by_name[img["name"]] = path
 
-        card_data = generate_cards(client, pdf_text, topic_text, images)
+        card_data, spent = generate_cards(client, source_text, topic_text, images, deck_name)
 
-        deck_name = card_data.get("deck") or "Anki::Cards"
+        # The deck name is ours, not the model's — see deck_name_for()
         card_data["deck"] = deck_name
         cards = validate_cards(card_data)
         if not cards:
-            print("Error: Claude returned no usable cards.", file=sys.stderr)
-            sys.exit(1)
+            print(f"  Error: no usable cards for {deck_name}", file=sys.stderr)
+            return spent
 
         safe_name = re.sub(r"[^\w.-]+", "_", deck_name.replace("::", "_"))
         output_path = unique_path(OUTPUT_DIR / f"{safe_name}_{date.today().isoformat()}.apkg")
@@ -576,13 +681,107 @@ def cmd_generate(
         print(f"Building '{deck_name}'...")
         build_apkg(card_data, cards, output_path, images_by_name)
 
-    print(f"Saved: {output_path.relative_to(SCRIPT_DIR)}")
-    print("Double-click that file to import it into Anki.")
+    # Never let formatting the success message turn a built deck into a failure
+    try:
+        shown = output_path.relative_to(SCRIPT_DIR)
+    except ValueError:
+        shown = output_path
+    print(f"  Saved: {shown}")
+    return spent
+
+
+def cmd_generate(
+    sources: list[Path],
+    topic_path: Path | None,
+    include_images: bool,
+    assume_yes: bool,
+    deck_parent: str | None,
+) -> None:
+    ensure_dirs()
+    # Check the key before any slow extraction, so a missing key is reported
+    # immediately rather than after parsing a stack of 40-page PDFs.
+    client = get_client()
+
+    targets: list[Path | None] = list(sources) or [None]
+    topic_text = topic_path.read_text(encoding="utf-8") if topic_path else None
+    if len(targets) > 1:
+        print(f"{len(targets)} files — one deck each\n")
+
+    # Read and price everything before spending anything, so the whole batch
+    # gets a single confirmation instead of one prompt per file.
+    jobs: list[dict] = []
+    failed: list[str] = []
+    low_total = high_total = 0.0
+
+    for source in targets:
+        label = source.name if source else (topic_path.name if topic_path else "topic")
+        print(f"Reading {label}...")
+        try:
+            text, images = load_source(source, include_images) if source else (None, [])
+            tt, it = count_input_tokens(client, text, topic_text, images, system_prompt())
+        except Exception as exc:
+            print(f"  Failed to read: {exc}", file=sys.stderr)
+            failed.append(label)
+            continue
+        low, high = estimate_cost(tt, it)
+        low_total += low
+        high_total += high
+        jobs.append({
+            "label": label,
+            "text": text,
+            "topic_text": topic_text,
+            "images": images,
+            "deck": deck_name_for(source or topic_path, deck_parent),
+        })
+
+    if not jobs:
+        print("Nothing to process.", file=sys.stderr)
+        sys.exit(1)
+
+    noun = "deck" if len(jobs) == 1 else "decks"
+    print(f"\nEstimated cost: ${low_total:.2f}–${high_total:.2f} for {len(jobs)} {noun}")
+    # Gate on the upper bound: better to over-warn than to overspend silently.
+    if high_total > COST_CONFIRM_THRESHOLD and not assume_yes:
+        if input("  Continue? [y/N] ").strip().lower() not in ("y", "yes"):
+            print("Cancelled.")
+            return
+    print()
+
+    total = 0.0
+    built = 0
+    for i, job in enumerate(jobs, 1):
+        if len(jobs) > 1:
+            print(f"[{i}/{len(jobs)}] {job['label']}")
+        try:
+            total += generate_one(client, job)
+            built += 1
+        except SystemExit:
+            raise
+        except Exception as exc:
+            # One bad file must not abandon the rest of the batch
+            print(f"  Failed: {exc}", file=sys.stderr)
+            failed.append(job["label"])
+        if len(jobs) > 1:
+            print()
+
+    if len(jobs) > 1 or failed:
+        print(f"Done. {built}/{len(jobs)} decks built, total cost ${total:.2f}")
+    if failed:
+        print(f"Failed: {', '.join(failed)}", file=sys.stderr)
+    if built:
+        print("Double-click a file in Card Decks to import it into Anki.")
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Generate Anki cards from PDFs via the Claude API")
-    parser.add_argument("pdf", nargs="?", help="PDF to process (or a filename inside Source Material/)")
+    parser = argparse.ArgumentParser(
+        description="Generate Anki decks from lecture notes via the Claude API")
+    parser.add_argument("sources", nargs="*",
+                        help="One or more .md or .pdf files — each becomes its own deck. "
+                             "A bare filename is looked up in Source Material/.")
+    parser.add_argument("--all", action="store_true",
+                        help="Process every .md and .pdf in Source Material/")
+    parser.add_argument("--deck", metavar="NAME",
+                        help='Parent deck for every deck built, e.g. --deck "Anatomy S2"')
     parser.add_argument("--topic", metavar="FILE", help="Topic request .md file (or a filename inside Topics Requested/)")
     parser.add_argument("--unprotect", metavar="PDF", help="Strip copy-protection and save to Source Material/")
     parser.add_argument("--inbox", action="store_true", help="Show inbox contents and exit")
@@ -598,7 +797,7 @@ def main() -> None:
         cmd_unprotect(Path(args.unprotect))
         return
 
-    if not args.pdf and not args.topic:
+    if not args.sources and not args.topic and not args.all:
         parser.print_help()
         sys.exit(1)
 
@@ -612,10 +811,25 @@ def main() -> None:
         return p
 
     ensure_dirs()
-    pdf_path = resolve(args.pdf, SOURCE_DIR, "Source Material") if args.pdf else None
+    sources = [resolve(s, SOURCE_DIR, "Source Material") for s in args.sources]
+
+    if args.all:
+        wanted = TEXT_SUFFIXES | {".pdf"}
+        found = sorted(f for f in SOURCE_DIR.iterdir()
+                       if f.is_file() and f.suffix.lower() in wanted
+                       and not f.name.startswith("."))
+        if not found:
+            print("Nothing to process — Source Material/ has no .md or .pdf files.",
+                  file=sys.stderr)
+            sys.exit(1)
+        # --all adds to anything named explicitly, without duplicating it
+        already = {s.resolve() for s in sources}
+        sources += [f for f in found if f.resolve() not in already]
+
     topic_path = resolve(args.topic, TOPICS_DIR, "Topics Requested") if args.topic else None
 
-    cmd_generate(pdf_path, topic_path, include_images=not args.text_only, assume_yes=args.yes)
+    cmd_generate(sources, topic_path, include_images=not args.text_only,
+                 assume_yes=args.yes, deck_parent=args.deck)
 
 
 if __name__ == "__main__":

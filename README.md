@@ -35,21 +35,40 @@ The `Source Material/`, `Topics Requested/` and `Card Decks/` folders are create
 
 ## Daily use
 
-**Generate cards from a PDF:**
+**Point it straight at an Obsidian note** — no exporting:
 ```
-uv run make_cards.py "Source Material/Week 3 - Genetics.pdf"
+uv run make_cards.py "C:\Users\you\ObsidianVault\Lectures\Week 2 Gas Exchange.md"
 ```
-Or just the filename if it's already in `Source Material/`:
+Diagrams embedded with `![[image.png]]` are found automatically in your vault, so there's no
+need to copy attachments anywhere.
+
+**Or use a file you've dropped in `Source Material/`:**
 ```
 uv run make_cards.py "Week 3 - Genetics.pdf"
 ```
+
+**Several lectures at once — each gets its own deck:**
+```
+uv run make_cards.py "Week 2 Gas Exchange.md" "Week 3 Immunity.md"
+```
+
+**Everything waiting in `Source Material/`:**
+```
+uv run make_cards.py --all
+```
+
+**Group decks under a parent** (recommended — keeps Anki tidy):
+```
+uv run make_cards.py --all --deck "Anatomy S2"
+```
+That produces `Anatomy S2::Week 2 Gas Exchange`, `Anatomy S2::Week 3 Immunity`, and so on.
 
 **With a topic focus file:**
 ```
 uv run make_cards.py "Week 3 - Genetics.pdf" --topic "Topics Requested/krebs-cycle.md"
 ```
 
-**Topic file only (no PDF — uses Claude's general knowledge):**
+**Topic file only (no source — uses Claude's general knowledge):**
 ```
 uv run make_cards.py --topic "Topics Requested/krebs-cycle.md"
 ```
@@ -70,25 +89,37 @@ This saves a clean copy to `Source Material/`.
 uv run make_cards.py --inbox
 ```
 
-The finished `.apkg` file lands in `Card Decks/`. Double-click it — Anki imports it automatically.
+The finished `.apkg` files land in `Card Decks/`. Double-click one — Anki imports it automatically.
 
-Before calling the API the script prints an estimated cost, and afterwards the actual cost. A
-typical illustrated lecture runs to roughly **$0.40–0.50**; text-only is much less. Above $1 it
-asks you to confirm — pass `-y` to skip that prompt.
+Before calling the API the script prices the whole batch and asks once; afterwards it prints what
+each run actually cost. A text-heavy lecture is a few pence; an illustrated PDF chapter runs to
+roughly **$0.40–0.50**. Above $1 for the batch it asks you to confirm — pass `-y` to skip that
+prompt. If one file fails, the rest still run.
 
-## Markdown notes as a source
+## Using Obsidian notes
 
-As well as PDFs, the script accepts `.md` files from `Source Material/`:
+**Pass the `.md` file directly — don't export to PDF first.** Exporting loses two things that
+matter:
 
-```
-uv run make_cards.py "Week 2 - Gas Exchange.md"
-```
+- `==Highlighted==` text, which the script treats as high priority and gives its own cards. PDFs
+  carry no highlight information at all, so this is destroyed by the export.
+- The link between a diagram and the point in your notes where it appears.
 
-**If you take notes in Obsidian, export markdown rather than PDF.** `==Highlighted==` text is
-treated as high priority and gets its own cards — but that marking is destroyed by a trip through
-PDF, which carries no highlight information at all. Markdown keeps it.
+Embedded images (`![[diagram.png]]` or `![](path/diagram.png)`) are resolved by searching your
+vault, so attachments stored in a separate folder are found without copying anything. The vault is
+located by looking for the `.obsidian` folder above the note.
 
-(Markdown sources have no embedded diagrams, so `--text-only` is implied.)
+If an image can't be found, the script says so and carries on rather than failing — check the
+vault is reachable from this machine (a synced folder needs to have finished syncing).
+
+## Deck names
+
+Each file becomes its own deck, named after the file. `Week 2 Gas Exchange.md` becomes a deck
+called `Week 2 Gas Exchange`, or `Anatomy S2::Week 2 Gas Exchange` with `--deck "Anatomy S2"`.
+
+Names come from the filename rather than being chosen per run, so **re-running a lecture updates
+the same deck** instead of creating a near-duplicate beside it. Rename the file and you get a new
+deck, so keep filenames stable.
 
 ## Customising card style
 
