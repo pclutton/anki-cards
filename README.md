@@ -23,52 +23,49 @@ One command reads your PDF, calls Claude, and produces an `.apkg` file ready to 
    uv sync
    ```
 
-3. **Add your API key**
+3. **Add your API key and vault path**
 
-   Copy `.env.example` to `.env` and paste in your key:
+   Copy `.env.example` to `.env`, then fill in both lines:
    ```
    ANTHROPIC_API_KEY=sk-ant-...
+   OBSIDIAN_VAULT=C:\Users\you\Documents\MyVault
    ```
-   Get a free key at [console.anthropic.com](https://console.anthropic.com/).
+   Get a key at [console.anthropic.com](https://console.anthropic.com/). The vault path is what
+   lets the script find the diagrams your notes refer to — no quotes around it.
 
 The `Source Material/`, `Topics Requested/` and `Card Decks/` folders are created automatically the first time you run the script.
 
 ## Daily use
 
-**Point it straight at an Obsidian note** — no exporting:
-```
-uv run make_cards.py "C:\Users\you\ObsidianVault\Lectures\Week 2 Gas Exchange.md"
-```
-Diagrams embedded with `![[image.png]]` are found automatically in your vault, so there's no
-need to copy attachments anywhere.
+**The normal routine:** drag this week's notes into `Source Material/`, then run:
 
-**Or use a file you've dropped in `Source Material/`:**
-```
-uv run make_cards.py "Week 3 - Genetics.pdf"
-```
-
-**Several lectures at once — each gets its own deck.** Use a wildcard:
-```
-uv run make_cards.py "C:\Users\you\MyVault\Lectures\*.md" --deck "Anatomy S2"
-```
-
-Or name them individually:
-```
-uv run make_cards.py "Week 1 Cells.md" "Week 2 Gas Exchange.md" "Week 3 Immunity.md"
-```
-
-**Everything waiting in `Source Material/`:**
-```
-uv run make_cards.py --all
-```
-Note `--all` only looks in `Source Material/`. To do a whole folder inside your vault, use a
-wildcard as above.
-
-**Group decks under a parent** (recommended — keeps Anki tidy):
 ```
 uv run make_cards.py --all --deck "Anatomy S2"
 ```
-That produces `Anatomy S2::Week 2 Gas Exchange`, `Anatomy S2::Week 3 Immunity`, and so on.
+
+Every `.md` and `.pdf` in the folder becomes its own deck — `Anatomy S2::Week 2 Gas Exchange`,
+`Anatomy S2::Week 3 Immunity`, and so on. The whole batch is priced once before anything is
+spent, and if one file fails the rest still run.
+
+Drag in the **notes only**. Diagrams stay in your vault and are found automatically, provided
+`OBSIDIAN_VAULT` is set in `.env` — see [Using Obsidian notes](#using-obsidian-notes). You never
+need to copy images anywhere.
+
+**One lecture:**
+```
+uv run make_cards.py "Week 2 Gas Exchange.md" --deck "Anatomy S2"
+```
+
+**Specific files, not the whole folder:**
+```
+uv run make_cards.py "Week 1 Cells.md" "Week 2 Gas Exchange.md" --deck "Anatomy S2"
+```
+
+**Straight from the vault**, without copying anything in, also works:
+```
+uv run make_cards.py "C:\Users\you\MyVault\Lectures\*.md" --deck "Anatomy S2"
+```
+(`--all` only looks in `Source Material/`, so use a wildcard for a folder elsewhere.)
 
 **With a topic focus file:**
 ```
@@ -105,19 +102,17 @@ prompt. If one file fails, the rest still run.
 
 ## Using Obsidian notes
 
-**Pass the `.md` file directly — don't export to PDF first.** Exporting loses two things that
-matter:
+**Use the `.md` file — don't export to PDF first.** Drag a copy of the note itself into
+`Source Material/`. Exporting to PDF loses two things that matter:
 
 - `==Highlighted==` text, which the script treats as high priority and gives its own cards. PDFs
   carry no highlight information at all, so this is destroyed by the export.
 - The link between a diagram and the point in your notes where it appears.
 
-Embedded images (`![[diagram.png]]` or `![](path/diagram.png)`) are resolved by searching your
-vault, so attachments stored in a separate folder are found without copying anything. The vault is
-found automatically by looking for the `.obsidian` folder above the note — nothing to configure.
+### Tell it where your vault is (one-time)
 
-**If you copy a note out of the vault** into `Source Material/`, there's no `.obsidian` above it
-any more and the diagrams would go missing. Only in that case, add a second line to `.env`
+If you drag notes into `Source Material/` — the normal routine — the script needs to know where
+your vault is, so it can find the diagrams your notes refer to. Add a second line to `.env`
 alongside your API key:
 
 ```
@@ -128,7 +123,20 @@ OBSIDIAN_VAULT=C:\Users\you\Documents\MyVault
 **No quotes around the path.** `"C:\temp\notes"` in quotes is read as a tab character and
 silently stops working. Spaces in the path are fine without quotes.
 
-A note still inside the vault always takes precedence over this setting, so it's safe to leave on.
+Do this once and forget it. Without it, your notes still produce cards — but every diagram is
+silently missing, which is easy not to notice.
+
+### How images are found
+
+Embedded images (`![[diagram.png]]` or `![](path/diagram.png)`) are looked up by name across your
+whole vault, so attachments kept in a separate folder are found without copying anything.
+
+If a note is still *inside* the vault when you run it, the vault is detected automatically from
+the `.obsidian` folder and `OBSIDIAN_VAULT` isn't consulted — so the setting is safe to leave on
+whichever way you work.
+
+If an image can't be found, the script says so and carries on rather than failing — check the
+vault path is right and that a synced folder has finished syncing.
 
 If an image can't be found, the script says so and carries on rather than failing — check the
 vault is reachable from this machine (a synced folder needs to have finished syncing).

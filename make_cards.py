@@ -211,8 +211,19 @@ def find_vault_root(note: Path) -> Path:
     return note.parent
 
 
+_IMAGE_INDEX_CACHE: dict[Path, dict[str, Path]] = {}
+
+
 def index_images(root: Path, limit: int = 20000) -> dict[str, Path]:
-    """Map lowercase filename -> path for every image under root."""
+    """Map lowercase filename -> path for every image under root.
+
+    Cached per run: a batch of lectures all resolve against the same vault,
+    and walking a large vault once per file would dominate the runtime.
+    """
+    key = root.resolve()
+    if key in _IMAGE_INDEX_CACHE:
+        return _IMAGE_INDEX_CACHE[key]
+
     index: dict[str, Path] = {}
     seen = 0
     for p in root.rglob("*"):
@@ -222,6 +233,8 @@ def index_images(root: Path, limit: int = 20000) -> dict[str, Path]:
             break
         if p.is_file() and p.suffix.lower() in IMAGE_SUFFIXES:
             index.setdefault(p.name.lower(), p)
+
+    _IMAGE_INDEX_CACHE[key] = index
     return index
 
 
