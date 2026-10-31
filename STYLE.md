@@ -241,12 +241,16 @@ Then, only if it is examinable in its own right:
 
 ## Topic request files
 
-Written in `Topics Requested/` as plain `.md` files.
+Optional. Written in `Topics Requested/` as plain `.md` files, named after the
+source they belong to.
 
 - Treat `## Special Emphasis` as high priority — more cards on these topics,
-  past-paper phrasing, tagged `exam-priority`
-- If a `## Source File` is named, use it as the primary source
-- If `## Source File` is `(none)`, generate from general knowledge
+  using past-paper phrasing, tagged `exam-priority`
+- A topic request only steers what to focus on. The source material is supplied
+  separately, so never treat the request itself as the material
+- Stay inside the card budget: a request means *more cards on these topics at
+  the expense of others*, not more cards overall
+- With no source material at all, generate from general knowledge
 
 ---
 *The deck name is derived from each source document, so there is no fixed deck list to maintain here.*
