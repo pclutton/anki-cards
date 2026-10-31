@@ -5,161 +5,231 @@ effect on the next run. Everything about card quality is decided here.*
 
 ---
 
-## The one rule that matters
-
-**One recallable fact per card.**
-
-Before writing a card, apply this test: *could this be graded right or wrong in a
-single judgement?* If answering it correctly requires recalling two independent
-facts, it is two cards.
-
-A card you cannot honestly mark right or wrong is worse than no card, because it
-trains the habit of half-remembering and pressing "Good".
-
-Do **not** get around this by compressing several facts into fewer bullets. These
-are all the same violation:
-
-- three bullets, each holding three facts
-- one bullet with facts separated by semicolons
-- a comma-separated list inside a single bullet
-
-The count of bullets is not the point. The count of *things to remember* is.
-
 ## How many cards
 
-Aim for **2–3 cards per slide or major heading**. A 40-page lecture or textbook
-chapter should produce roughly **90–120 cards**.
+**20–30 cards per lecture. This is a hard budget, not a target to exceed.**
 
-Prefer many small cards over a few dense ones. If you find yourself writing a
-long answer, that is the signal to split, not to summarise harder.
+Two lectures a week at this rate is a sustainable review load. A hundred cards
+from one lecture is not — it gets abandoned, and abandoned cards teach nothing.
 
-## Handling lists
+Count **cards, not notes**. They are not the same thing:
 
-Lists are where card quality usually collapses. Never answer a list question with
-a bulleted dump.
+| Note type | Cards produced |
+|---|---|
+| Basic | 1 |
+| Basic (and reversed card) | **2** |
+| Cloze with `c1`…`c5` | **5** |
+| Cloze where every deletion is `c1` | **1** |
 
-Instead write **one Cloze note with one deletion per item**. Anki turns that into
-one card per item automatically, each showing the remaining items as context — so
-a nine-item list becomes nine answerable cards from a single note.
+A cloze note with five separate deletion numbers costs five cards against the
+budget. Budget in cards.
 
-Use `{{c1::…}}`, `{{c2::…}}`, `{{c3::…}}` and so on, numbering each item separately.
-Reuse the same number only when two items should be hidden together.
+If the material will not fit in 30 cards, do not spill over. Choose what matters
+most using the priority order at the bottom of this file.
 
-## Choosing a card type
+## The core rule
 
-- **Cloze** — definitions, facts in context, and every list (see above)
-- **Basic** — processes, explanations, comparisons, "why" questions
-- **Basic (and reversed card)** — key vocabulary only, where recognising the term
-  *and* producing it from the definition are both worth testing
+**A card must require recall. If it can be answered by reasoning from what is
+already on the card, it teaches nothing.**
 
-Do not use reversed cards for anything whose definition is a full sentence of
-prose — going backwards from a paragraph to a single word is not a fair test.
+Before writing a card, ask: *could someone who has never seen this material get
+it right anyway?* If yes, the card is broken, however well-formatted it is.
+
+The common ways this goes wrong:
+
+- **Answer by elimination.** "The vessel is not small, so it must be large."
+  If only two options exist and the card reveals one, the other is free.
+- **Answer visible in the question.** Asking "which is the *largest* chamber?"
+  when the answer is simply the thing described as largest.
+- **Answer given by grammar or phrasing.** A blank that only one word fits
+  grammatically.
+- **Answer legible in the image.** See *Diagrams* below.
+
+When contrasting two things, hide **both** sides with the same cloze number, or
+ask for the distinction as a Basic question. Never leave one half visible as a
+free hint.
+
+## Lists
+
+**A list is one card.** Five items do not become five cards.
+
+Ask for the whole list in one question, and accept it as one recall:
+
+> **Q:** What are the five requirements for efficient gas exchange?
+> **A:** Large partial-pressure difference • short exchange distance • O₂ and
+> CO₂ lipid-soluble • large surface area • airflow and blood flow coordinated
+
+If you prefer cloze for a list, **give every item the same number** (`c1`), so
+Anki hides them together and produces a single card:
+
+> `The gas exchange requirements are {{c1::a large PP difference}},
+> {{c1::short distances}}, {{c1::lipid solubility}}, {{c1::large surface area}}
+> and {{c1::coordinated flow}}.`
+
+Only split a list across cards when it is genuinely long (more than about eight
+items) *and* the items are examined separately. Then group them logically into
+two cards — never one card per item.
+
+## Processes, cycles and flow diagrams
+
+These are common in lecture material and are the fastest way to blow the budget.
+
+**A process is one card.** Ask for the sequence as a whole:
+
+> **Q:** Trace blood flow through the right side of the heart.
+> **A:** Vena cava → right atrium → tricuspid valve → right ventricle →
+> pulmonary valve → pulmonary artery
+
+Do not make one card per step. Do not make a card for every arrow in a cycle
+diagram. A second card is justified only where a specific step carries its own
+examinable fact — for example *why* the AV node delay exists — and that is a
+different question, not a step in the sequence.
+
+## Definitions
+
+**Each definition gets its own card.** Definitions are the backbone of the
+subject and are worth their budget.
+
+The exception: two definitions that are only meaningful as a pair — terms that
+are defined against each other — belong on one card.
+
+> **Q:** Systole vs diastole?
+> **A:** Systole = cardiac muscle contracting. Diastole = relaxing.
+> (Mnemonic: **S**ystole = **S**queeze)
+
+Use **Basic (and reversed card)** only for short, single-term vocabulary where
+producing the term from its definition is genuinely useful. Remember it costs
+two cards.
 
 ## Diagrams
 
-If a question refers to a diagram in any way — "label", "identify", "shown here",
-"in this image" — the `<img>` tag **must be in the question field**. A diagram
-that only appears after the flip cannot be attempted, which makes the card
-worthless as a labelling exercise.
+A diagram belongs on the **question** side when the student must work something
+out from it — identifying a structure an arrow points to, reading a trace,
+interpreting a result.
 
-Put an image on the answer side only to *confirm* something the student was
-expected to recall from text alone.
+**Before using an image on the question side, check whether it contains the
+answer.** If the structures are labelled, or the formula is written on the
+image, then showing it gives the answer away. Asking "what is this formula?"
+above an image of the formula is not a flashcard.
 
-Most cards should have no image at all. Use one where the visual is genuinely
-what is being learned: anatomical structures, metabolic cycles, apparatus.
+When the image is self-answering, do one of:
+
+- ask about something the image does *not* spell out (a mechanism, a
+  consequence, why it is so)
+- put the image on the **answer** side, as confirmation of something recalled
+  from text
+- leave the image out
+
+Most cards need no image at all.
+
+## Highlighted text (Obsidian notes)
+
+When the source is Obsidian markdown, `==highlighted text==` marks what the
+student thought important while writing the notes.
+
+**Treat highlighted text and the content attached to it as warranting its own
+card**, ahead of surrounding unhighlighted material. Tag these `highlighted`.
+
+*Note: this only works when the source file is markdown (`.md`). Highlight
+colour is lost when notes are exported to PDF, so export notes as markdown to
+get the benefit.*
 
 ## Answer style
 
 - Plain English first, technical term second
-- Concrete example or analogy where it helps
+- Short — a paragraph means the card is doing too much
+- Concrete example or analogy where it genuinely helps
 - Include a mnemonic where one exists or can be invented
 - Give the Latin/Greek root for new biological terms
-- No long paragraphs — a paragraph means you should have split the card
 
-## What to emphasise
+## Tagging
 
-- Exam-style phrasing, past-paper style where possible
-- Anything flagged as "this will be in the exam"
-- Common misconceptions, stated explicitly as misconceptions
+Tag every card by difficulty: `easy`, `medium`, `hard`.
+Tag exam-flagged material `exam-priority`, and highlighted material `highlighted`.
 
 ## What to skip
 
 - Trivial definitions already covered in earlier decks
-- Anything marked `[SKIP]` in the source material
+- Anything marked `[SKIP]` in the source
+- Housekeeping slides: titles, aims, references, "any questions?"
 
-## Tagging
+## Priority order when the budget is tight
 
-Tag every card by difficulty: `easy`, `medium`, or `hard`.
-Tag exam-priority material `exam-priority`.
+Work down this list and stop at 30 cards:
+
+1. `==Highlighted==` content — the student marked it themselves
+2. Definitions of new terms
+3. Anything flagged as examinable, or phrased as a past-paper question
+4. Processes and cycles — one card each
+5. Comparisons and distinctions
+6. Supporting detail and examples
+
+Prefer one broader card covering a topic over dropping that topic entirely.
 
 ---
 
 # Worked examples
 
-These are real cards from a generated deck, with what was wrong and what to do
-instead. Follow the patterns on the right.
+### 1 — A list is one card
 
-### Example 1 — a list dumped into one card
+**Bad.** Five items split into five separate deletions, costing five cards.
 
-**Bad.** Ten separate properties behind a single question. There is no way to
-mark this right or wrong.
+> `The classic model organisms are {{c1::E. coli}}, {{c2::yeast}},
+> {{c3::Arabidopsis}}, {{c4::C. elegans}} and {{c5::Drosophila}}.`
 
-> **Q:** List the basic properties shared by all cells.
-> **A:** • Highly complex & organised; possess and use a genetic program
-> • Reproduce; acquire and use energy; carry out chemical reactions
-> • Engage in mechanical activity, respond to stimuli, self-regulate, evolve
+**Good.** One card, one recall.
 
-**Good.** One Cloze note, one deletion per property. Anki generates a separate
-card for each, and each is gradeable.
+> **Q:** Name the five classic model organisms of cell biology.
+> **A:** *E. coli* • yeast (*S. cerevisiae*) • *Arabidopsis* • *C. elegans* •
+> *Drosophila*
 
-> **Cloze:** All cells are highly {{c1::complex and organised}}, possess a
-> {{c2::genetic program}} and act on it, are capable of {{c3::reproduction}},
-> {{c4::acquire and use energy}}, carry out {{c5::chemical reactions}}, engage in
-> {{c6::mechanical activities}}, are able to {{c7::respond to stimuli}},
-> {{c8::self-regulate}}, and {{c9::evolve}}.
+### 2 — The answer must not be inferable
 
-### Example 2 — a labelling question with no diagram to label
+**Bad.** The card states veins are the low-pressure side, so "higher" is free.
 
-**Bad.** The diagram is on the answer, so the student sees only text and cannot
-attempt the task.
+> `Pressure is {{c1::higher}} in arteries than in veins, which are the
+> low-pressure side of the circulation.`
 
-> **Q:** Label the parts of a prokaryotic (bacterial) cell.
-> **A:** Capsule, cell wall, plasma membrane, cytoplasm, ribosomes, DNA of
-> nucleoid, pilus, bacterial flagellum `<img src="img012.jpg">`
+**Good.** Both sides hidden together, so the contrast must actually be known.
 
-**Good.** Image in the question, and ask for something specific rather than
-everything at once.
+> `Pressure is {{c1::higher}} in arteries and {{c1::lower}} in veins.`
 
-> **Q:** `<img src="img012.jpg">` This bacterial cell has a protective outer layer
-> external to the cell wall. Name it.
-> **A:** The capsule
+Or as a Basic card that demands the reasoning:
 
-> **Q:** `<img src="img012.jpg">` Where in this cell is the DNA located, and what
-> is that region called?
-> **A:** Free in the cytoplasm, in a region called the **nucleoid** — it is not
-> enclosed by a membrane.
+> **Q:** Why is the left ventricle wall thicker than the right?
+> **A:** It pumps into the systemic circuit at 80–100 mmHg, against the right
+> ventricle's <15 mmHg into the pulmonary circuit — roughly 4–6× the pressure.
 
-### Example 3 — items crammed to satisfy a formatting rule
+### 3 — Do not ask what the image already answers
 
-**Bad.** Six organisms behind one question, packed into two bullets.
+**Bad.** The formula is printed in the image shown on the question side.
 
-> **Q:** Name the six classic model organisms of cell biology.
-> **A:** • E. coli (bacterium), Saccharomyces (yeast), Arabidopsis (mustard plant)
-> • C. elegans (nematode), Drosophila (fruit fly), Mus musculus (mouse)
+> **Q:** `<img src="img004.jpg">` What is Henry's Law?
 
-**Good.** A Cloze note for the set, so each organism is tested individually.
+**Good.** Ask for something the image does not state.
 
-> **Cloze:** The classic model organisms are {{c1::E. coli}} (bacterium),
-> {{c2::Saccharomyces cerevisiae}} (yeast), {{c3::Arabidopsis thaliana}} (mustard
-> plant), {{c4::C. elegans}} (nematode), {{c5::Drosophila melanogaster}} (fruit
-> fly) and {{c6::Mus musculus}} (mouse).
+> **Q:** `<img src="img004.jpg">` Henry's Law is shown here. What does it predict
+> happens to dissolved gas when partial pressure rises at constant temperature?
+> **A:** More gas dissolves — the amount in solution is proportional to the
+> partial pressure of that gas.
 
-Then, where the source explains *why* an organism is used, add a Basic card for
-it — that is a separate fact and deserves its own card:
+### 4 — A process is one card, not one per step
 
-> **Q:** Why is *C. elegans* useful for studying development?
-> **A:** Its cell lineage is completely mapped — every one of its ~1000 somatic
-> cells can be traced from the fertilised egg.
+**Bad.** Four cards for one sequence.
+
+> Four separate cards asking for step 1, step 2, step 3 and step 4 of the
+> electrical conduction pathway.
+
+**Good.**
+
+> **Q:** Describe the heart's electrical conduction pathway in order.
+> **A:** SA node → AV node (100 ms delay) → AV bundle (His) → Purkinje fibres
+
+Then, only if it is examinable in its own right:
+
+> **Q:** Why does the AV node delay the impulse by ~100 ms?
+> **A:** It lets the atria empty fully into the ventricles before ventricular
+> systole, maximising stroke volume.
 
 ---
 
@@ -167,8 +237,8 @@ it — that is a separate fact and deserves its own card:
 
 Written in `Topics Requested/` as plain `.md` files.
 
-- Treat `## Special Emphasis` as high priority — generate more cards on these
-  topics, use past-paper phrasing, and tag them `exam-priority`
+- Treat `## Special Emphasis` as high priority — more cards on these topics,
+  past-paper phrasing, tagged `exam-priority`
 - If a `## Source File` is named, use it as the primary source
 - If `## Source File` is `(none)`, generate from general knowledge
 

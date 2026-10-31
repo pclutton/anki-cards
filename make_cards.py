@@ -42,21 +42,21 @@ OUTPUT_COST_PER_MTOK = 25.00
 # Above this estimated cost, ask before spending
 COST_CONFIRM_THRESHOLD = 1.00
 
-# Measured from a real run: a 43-page chapter with the current STYLE.md
-# produced 98 notes from 11,328 text tokens and 10,800 output tokens.
-# This figure is TOTAL output per card — thinking included, not just the
-# visible JSON — so the factors below are variance headroom, not a thinking
-# allowance on top.
-OUTPUT_TOKENS_PER_CARD = 110
-# Cards scale with how much *reading* there is, not how many pictures. Image
-# tokens must stay out of this: a chapter's 48k image tokens would otherwise
-# predict a 400-card deck from a 98-card lecture.
-TEXT_TOKENS_PER_CARD = 115
-# Ceiling on the predicted deck size. STYLE.md currently targets 90-120 cards
-# per chapter; raise both together if that target changes.
-MAX_EXPECTED_CARDS = 130
+# Output per card, thinking included — the factors below are variance
+# headroom, not a thinking allowance on top. Measured at 110 under the old
+# 90-120 card target; raised because the current guide asks for fewer but
+# denser cards (whole lists and processes on a single card). Provisional
+# until a real run under the new guide confirms it — the actual cost printed
+# after every run is the figure to trust.
+OUTPUT_TOKENS_PER_CARD = 170
+# Deck size is now set by STYLE.md's explicit 20-30 card budget rather than
+# by source length, so this mainly keeps short sources from over-predicting.
+# Image tokens stay out of it: cards scale with reading, not pictures.
+TEXT_TOKENS_PER_CARD = 320
+# Hard ceiling matching STYLE.md's budget. Change both together.
+MAX_EXPECTED_CARDS = 30
 THINKING_FACTOR_LOW = 1.0
-THINKING_FACTOR_HIGH = 1.3
+THINKING_FACTOR_HIGH = 1.5
 
 # Anki's built-in note types, via genanki's canonical definitions. Do not
 # hand-roll these: a mismatched model ID makes Anki fork the note type on
@@ -120,9 +120,21 @@ def flatten_on_white(pix: fitz.Pixmap) -> fitz.Pixmap:
     return flat
 
 
-def extract_pdf_text(pdf_path: Path) -> str:
-    """Extract PDF text as Markdown, preserving headings, lists and tables."""
-    return pymupdf4llm.to_markdown(str(pdf_path))
+TEXT_SUFFIXES = {".md", ".markdown", ".txt"}
+
+
+def extract_source_text(path: Path) -> str:
+    """Read a source document as Markdown.
+
+    Markdown and text files are passed through untouched. This matters for
+    Obsidian exports: ==highlighted== text marks what the student thought
+    important, and that marking is destroyed by a trip through PDF — PDFs
+    carry no highlight annotation and no colour survives text extraction, so
+    the highlight rule in STYLE.md can only fire on markdown input.
+    """
+    if path.suffix.lower() in TEXT_SUFFIXES:
+        return path.read_text(encoding="utf-8")
+    return pymupdf4llm.to_markdown(str(path))
 
 
 def extract_pdf_images(pdf_path: Path) -> list[dict]:
@@ -222,7 +234,7 @@ def estimate_cost(text_tokens: int, img_tokens: int) -> tuple[float, float]:
     input rate, so a few thousand tokens of JSON can outweigh a long PDF.
     """
     input_cost = (text_tokens + img_tokens) / 1_000_000 * INPUT_COST_PER_MTOK
-    expected_cards = max(10, min(MAX_EXPECTED_CARDS, text_tokens // TEXT_TOKENS_PER_CARD))
+    expected_cards = max(8, min(MAX_EXPECTED_CARDS, text_tokens // TEXT_TOKENS_PER_CARD))
     visible_output = expected_cards * OUTPUT_TOKENS_PER_CARD
     low = input_cost + visible_output * THINKING_FACTOR_LOW / 1_000_000 * OUTPUT_COST_PER_MTOK
     high = input_cost + visible_output * THINKING_FACTOR_HIGH / 1_000_000 * OUTPUT_COST_PER_MTOK
@@ -514,8 +526,12 @@ def cmd_generate(
 
     if pdf_path:
         print(f"Reading {pdf_path.name}...")
-        pdf_text = extract_pdf_text(pdf_path)
-        if include_images:
+        pdf_text = extract_source_text(pdf_path)
+        is_markdown = pdf_path.suffix.lower() in TEXT_SUFFIXES
+        if is_markdown and "==" in pdf_text:
+            print("  markdown source — ==highlighted== passages will be prioritised")
+        # Only PDFs carry embedded images to extract
+        if include_images and not is_markdown:
             images = extract_pdf_images(pdf_path)
             print(f"  {len(images)} usable image(s) found")
 

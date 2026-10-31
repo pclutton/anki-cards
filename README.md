@@ -73,18 +73,32 @@ uv run make_cards.py --inbox
 The finished `.apkg` file lands in `Card Decks/`. Double-click it — Anki imports it automatically.
 
 Before calling the API the script prints an estimated cost, and afterwards the actual cost. A
-40-page illustrated chapter runs to roughly **$0.70–0.90**; text-only is much less. Above $1 it
+typical illustrated lecture runs to roughly **$0.40–0.50**; text-only is much less. Above $1 it
 asks you to confirm — pass `-y` to skip that prompt.
+
+## Markdown notes as a source
+
+As well as PDFs, the script accepts `.md` files from `Source Material/`:
+
+```
+uv run make_cards.py "Week 2 - Gas Exchange.md"
+```
+
+**If you take notes in Obsidian, export markdown rather than PDF.** `==Highlighted==` text is
+treated as high priority and gets its own cards — but that marking is destroyed by a trip through
+PDF, which carries no highlight information at all. Markdown keeps it.
+
+(Markdown sources have no embedded diagrams, so `--text-only` is implied.)
 
 ## Customising card style
 
-`STYLE.md` controls **everything** about how cards are written: how many, how they're split, which
-card type is used, and where diagrams go. It's an ordinary text file — open it in VS Code and edit
-it. Changes take effect on the next run.
+`STYLE.md` controls **everything** about how cards are written: how many, how lists and processes
+are split, which card type is used, and where diagrams go. It's an ordinary text file — open it in
+VS Code and edit it. Changes take effect on the next run.
 
-It's worth reading once before your first real deck. The two things most worth tuning are the
-**card count target** (currently ~90–120 per chapter) and the **worked examples** at the bottom —
-the examples do more to shape the output than the rules above them, so adding one in your own
+It's worth reading once before your first real deck. The things most worth tuning are the
+**card budget** (currently 20–30 per lecture) and the **worked examples** at the bottom — the
+examples do more to shape the output than the rules above them, so adding one from your own
 subject is the fastest way to improve results.
 
 ## Re-running a lecture
