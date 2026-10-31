@@ -876,8 +876,32 @@ def main() -> None:
             sys.exit(1)
         return p
 
+    def expand(value: str) -> list[Path]:
+        """A single path, or every supported file matching a wildcard.
+
+        PowerShell does not expand wildcards for external commands, so a
+        pattern arrives here literally and has to be expanded by us. Without
+        this, pointing at a folder of lecture notes in the vault means typing
+        out every full path.
+        """
+        if any(c in value for c in "*?["):
+            pattern = Path(value)
+            base = pattern.parent if str(pattern.parent) not in ("", ".") else SOURCE_DIR
+            wanted = TEXT_SUFFIXES | {".pdf"}
+            matches = sorted(p for p in base.glob(pattern.name)
+                             if p.is_file() and p.suffix.lower() in wanted)
+            if not matches:
+                print(f"Error: nothing matching '{value}' found", file=sys.stderr)
+                sys.exit(1)
+            return matches
+        return [resolve(value, SOURCE_DIR, "Source Material")]
+
     ensure_dirs()
-    sources = [resolve(s, SOURCE_DIR, "Source Material") for s in args.sources]
+    sources = []
+    for value in args.sources:
+        for path in expand(value):
+            if path.resolve() not in {s.resolve() for s in sources}:
+                sources.append(path)
 
     if args.all:
         wanted = TEXT_SUFFIXES | {".pdf"}

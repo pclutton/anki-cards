@@ -47,15 +47,22 @@ need to copy attachments anywhere.
 uv run make_cards.py "Week 3 - Genetics.pdf"
 ```
 
-**Several lectures at once — each gets its own deck:**
+**Several lectures at once — each gets its own deck.** Use a wildcard:
 ```
-uv run make_cards.py "Week 2 Gas Exchange.md" "Week 3 Immunity.md"
+uv run make_cards.py "C:\Users\you\MyVault\Lectures\*.md" --deck "Anatomy S2"
+```
+
+Or name them individually:
+```
+uv run make_cards.py "Week 1 Cells.md" "Week 2 Gas Exchange.md" "Week 3 Immunity.md"
 ```
 
 **Everything waiting in `Source Material/`:**
 ```
 uv run make_cards.py --all
 ```
+Note `--all` only looks in `Source Material/`. To do a whole folder inside your vault, use a
+wildcard as above.
 
 **Group decks under a parent** (recommended — keeps Anki tidy):
 ```
