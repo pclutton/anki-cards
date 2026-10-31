@@ -16,3 +16,6 @@ wheels/
 Source Material/
 Topics Requested/
 Card Decks/
+
+# Personal style tweaks — kept local so updates never conflict
+STYLE.local.md

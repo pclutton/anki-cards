@@ -20,6 +20,9 @@ from dotenv import load_dotenv
 
 SCRIPT_DIR = Path(__file__).parent
 STYLE_PATH = SCRIPT_DIR / "STYLE.md"
+# Personal tweaks live beside the defaults but are gitignored, so customising
+# the guide never collides with a `git pull`.
+LOCAL_STYLE_PATH = SCRIPT_DIR / "STYLE.local.md"
 SOURCE_DIR = SCRIPT_DIR / "Source Material"
 TOPICS_DIR = SCRIPT_DIR / "Topics Requested"
 OUTPUT_DIR = SCRIPT_DIR / "Card Decks"
@@ -438,7 +441,21 @@ def get_client() -> Anthropic:
 
 
 def system_prompt() -> str:
+    """The shared style guide, with any personal overrides appended.
+
+    STYLE.md is tracked and gets rewritten by updates; STYLE.local.md is the
+    student's own and is gitignored. Appending rather than replacing means a
+    local file only has to state what differs, and an explicit precedence note
+    settles any conflict with the defaults above it.
+    """
     style = STYLE_PATH.read_text(encoding="utf-8") if STYLE_PATH.exists() else ""
+    local = LOCAL_STYLE_PATH.read_text(encoding="utf-8").strip() if LOCAL_STYLE_PATH.exists() else ""
+    if local:
+        style += (
+            "\n\n---\n\n# Local overrides\n\n"
+            "The rules below come from the student's own STYLE.local.md. Where they "
+            "conflict with anything above, these win.\n\n" + local
+        )
     return style or "You are an expert at creating Anki flashcards."
 
 
@@ -704,6 +721,8 @@ def cmd_generate(
 
     targets: list[Path | None] = list(sources) or [None]
     topic_text = topic_path.read_text(encoding="utf-8") if topic_path else None
+    if LOCAL_STYLE_PATH.exists():
+        print(f"Using your {LOCAL_STYLE_PATH.name} on top of the shared style guide")
     if len(targets) > 1:
         print(f"{len(targets)} files — one deck each\n")
 

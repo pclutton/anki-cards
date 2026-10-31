@@ -1,7 +1,13 @@
 # Anki Card Style Guide
 
-*This file controls how your flashcards are written. Edit it freely — changes take
-effect on the next run. Everything about card quality is decided here.*
+*This file controls how your flashcards are written. Everything about card
+quality is decided here.*
+
+> **Put your own changes in `STYLE.local.md`, not in this file.** Copy
+> `STYLE.local.example.md` to `STYLE.local.md` and write only what you want
+> different — it is added after this guide and wins wherever the two disagree.
+> This file is shared and gets rewritten by updates, so edits here are lost or
+> cause a conflict on the next `git pull`. `STYLE.local.md` is never touched.
 
 ---
 

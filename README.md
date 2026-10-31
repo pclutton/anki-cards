@@ -124,18 +124,30 @@ deck, so keep filenames stable.
 ## Customising card style
 
 `STYLE.md` controls **everything** about how cards are written: how many, how lists and processes
-are split, which card type is used, and where diagrams go. It's an ordinary text file — open it in
-VS Code and edit it. Changes take effect on the next run.
+are split, which card type is used, and where diagrams go. Read it once before your first real
+deck — it's an ordinary text file.
 
-It's worth reading once before your first real deck. The things most worth tuning are the
-**card budget** (currently 20–30 per lecture) and the **worked examples** at the bottom — the
-examples do more to shape the output than the rules above them, so adding one from your own
-subject is the fastest way to improve results.
+**Put your own changes in `STYLE.local.md`, not in `STYLE.md`.** Copy the template to get started:
+
+```
+Copy-Item STYLE.local.example.md STYLE.local.md
+```
+
+Then edit `STYLE.local.md` and write only what you want *different* — it's added after the shared
+guide, and wins wherever the two disagree. Changes take effect on the next run, and the script
+tells you when it's picking the file up.
+
+The reason for the split: `STYLE.md` is shared and gets rewritten by updates, so editing it
+directly means `git pull` either overwrites your work or stops with a conflict. `STYLE.local.md`
+is ignored by git, so it survives every update untouched.
+
+The things most worth tuning are the **card budget** (currently 20–30 per lecture) and adding a
+**worked example** from your own subject — examples shape the output more than rules do.
 
 ## Re-running a lecture
 
-Re-running the same PDF and importing again **updates** existing cards rather than duplicating them —
-so you can tweak `STYLE.md`, re-run, and your review history is preserved.
+Re-running the same file and importing again **updates** existing cards rather than duplicating them —
+so you can tweak `STYLE.local.md`, re-run, and your review history is preserved.
 
 The one exception: cards are matched on their *question* text. If Claude rewords a question between
 runs, that counts as a new card and the old one stays behind. If you re-run a lecture several times
